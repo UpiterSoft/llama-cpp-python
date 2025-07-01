@@ -1,6 +1,7 @@
 name: Build Wheels (CUDA) for Windows
 
-on: workflow_dispatch
+on: 
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -24,6 +25,7 @@ jobs:
               'pyver' = @("3.11")  # "3.10", , "3.12"
               'cuda' = @("12.6.3")  # "12.1.1", "12.2.2", "12.3.2", "12.4.1") #, "12.5.1", 
               'releasetag' = @("AVX2")  # 'releasetag' = @("basic")
+              'cudaarch' = @("all")
           }
 
           $matrixOut = ConvertTo-Json $matrix -Compress
@@ -41,73 +43,52 @@ jobs:
     env:
       CUDAVER: ${{ matrix.cuda }}
       AVXVER: ${{ matrix.releasetag }}
+      CUDAARCHVER: ${{ matrix.cudaarch }}
+      # https://cmake.org/cmake/help/latest/prop_tgt/CUDA_ARCHITECTURES.html
+      # https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/#gpu-feature-list
+      # e.g. "all" "89"
 
     steps:
       - name: Add MSBuild to PATH
         if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@main
         with:
-          vs-version: '[16.11,16.12)'
+          vs-version: '[17.12,17.15)'
+          msbuild-architecture: x64
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@main
         with:
           submodules: "recursive"
+      
+      
+      # from kingbri1/flash-attention build-wheels.yml
+      - name: Install CUDA ${{ matrix.cuda }}
+        uses: Jimver/cuda-toolkit@v0.2.24
+        # 250630 temporary issue https://github.com/Jimver/cuda-toolkit/issues/395#issuecomment-2941579978
+        id: cuda-toolkit
+        with:
+          cuda: "${{ matrix.cuda }}"
 
-      - uses: actions/setup-python@v5
+      - name: Install the latest version of uv and set the python version
+        uses: astral-sh/setup-uv@main
         with:
           python-version: ${{ matrix.pyver }}
-          cache: 'pip'
-
-      - name: Setup Mamba
-        uses: conda-incubator/setup-miniconda@v3.1.0
-        with:
-          activate-environment: "llamacpp"
-          python-version: ${{ matrix.pyver }}
-          miniforge-version: latest
-          add-pip-as-python-dependency: true
-          auto-activate-base: false
-
-      - name: VS Integration Cache
-        id: vs-integration-cache
-        if: runner.os == 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ./MSBuildExtensions
-          key: cuda-${{ matrix.cuda }}-vs-integration
-
-      - name: Get Visual Studio Integration
-        if: runner.os == 'Windows' && steps.vs-integration-cache.outputs.cache-hit != 'true'
-        run: |
-          if ($env:CUDAVER -eq '12.1.1') {$x = '12.1.0'} else {$x = $env:CUDAVER}
-          $links = (Invoke-RestMethod 'https://raw.githubusercontent.com/Jimver/cuda-toolkit/master/src/links/windows-links.ts').Trim().split().where({$_ -ne ''})
-          for ($i=$q=0;$i -lt $links.count -and $q -lt 2;$i++) {if ($links[$i] -eq "'$x',") {$q++}}
-          Invoke-RestMethod $links[$i].Trim("'") -OutFile 'cudainstaller.zip'
-          & 'C:\Program Files\7-Zip\7z.exe' e cudainstaller.zip -oMSBuildExtensions -r *\MSBuildExtensions\* > $null
-          Remove-Item 'cudainstaller.zip'
-
-      - name: Install Visual Studio Integration
-        if: runner.os == 'Windows'
-        run: |
-          $y = (gi '.\MSBuildExtensions').fullname + '\*'
-          (gi 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\MSBuild\Microsoft\VC\*\BuildCustomizations').fullname.foreach({cp $y $_})
-          $cupath = 'CUDA_PATH_V' + $env:CUDAVER.Remove($env:CUDAVER.LastIndexOf('.')).Replace('.','_')
-          echo "$cupath=$env:CONDA_PREFIX" >> $env:GITHUB_ENV
+          activate-environment: true
 
       - name: Install Dependencies
-        env:
-          MAMBA_DOWNLOAD_FAILFAST: "0"
-          MAMBA_NO_LOW_SPEED_LIMIT: "1"
         run: |
-          $cudaVersion = $env:CUDAVER
-          mamba install -y 'cuda' -c nvidia/label/cuda-$cudaVersion
-          python -m pip install build wheel
+          git config --system core.longpaths true
+          uv pip install --upgrade build setuptools wheel packaging
 
       - name: Build Wheel
         run: |
+          # $cupath = 'CUDA_PATH_V' + $env:CUDAVER.Remove($env:CUDAVER.LastIndexOf('.')).Replace('.','_')
+          # echo "$cupath=$env:CONDA_PREFIX" >> $env:GITHUB_ENV
+          
           $cudaVersion = $env:CUDAVER.Remove($env:CUDAVER.LastIndexOf('.')).Replace('.','')
-          $env:CUDA_PATH = $env:CONDA_PREFIX
-          $env:CUDA_HOME = $env:CONDA_PREFIX
-          $env:CUDA_TOOLKIT_ROOT_DIR = $env:CONDA_PREFIX
+          # $env:CUDA_PATH = $env:CONDA_PREFIX
+          $env:CUDA_HOME = $env:CUDA_PATH
+          $env:CUDA_TOOLKIT_ROOT_DIR = $env:CUDA_PATH
           if ($IsLinux) {
             $env:LD_LIBRARY_PATH = $env:CONDA_PREFIX + '/lib:' + $env:LD_LIBRARY_PATH
           }
@@ -129,11 +110,15 @@ jobs:
           python -m build --wheel
           # write the build tag to the output
           Write-Output "CUDA_VERSION=$cudaVersion" >> $env:GITHUB_ENV
+          
+          $wheel = (gi '.\dist\*.whl')[0]
+          $tagVer = $wheel.name.split('-')[1]
+          Write-Output "TAG_VERSION=$tagVer" >> $env:GITHUB_ENV
 
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           # Set tag_name to <tag>-cu<cuda_version>
-          tag_name: ${{ github.ref_name }}-cu${{ env.CUDA_VERSION }}
+          tag_name: v${{ env.TAG_VERSION }}-cu${{ env.CUDA_VERSION }}-win
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
