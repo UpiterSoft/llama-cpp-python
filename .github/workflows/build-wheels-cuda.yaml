@@ -1,4 +1,4 @@
-name: Build Wheels (CUDA)
+name: Build Wheels (CUDA) for Windows
 
 on: workflow_dispatch
 
@@ -8,7 +8,7 @@ permissions:
 jobs:
   define_matrix:
     name: Define Build Matrix
-    runs-on: ubuntu-latest
+    runs-on: windows-2022
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     defaults:
@@ -20,10 +20,10 @@ jobs:
         id: set-matrix
         run: |
           $matrix = @{
-              'os' = @('windows-2019')  #'ubuntu-latest', 
+              'os' = @('windows-2022')  #'ubuntu-latest', 
               'pyver' = @("3.11")  # "3.10", , "3.12"
               'cuda' = @("12.6.3")  # "12.1.1", "12.2.2", "12.3.2", "12.4.1") #, "12.5.1", 
-              'releasetag' = @("basic")
+              'releasetag' = @("AVX2")  # 'releasetag' = @("basic")
           }
 
           $matrixOut = ConvertTo-Json $matrix -Compress
@@ -114,9 +114,12 @@ jobs:
           $env:VERBOSE = '1'
           $env:CMAKE_ARGS = '-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=all'
           $env:CMAKE_ARGS = "-DGGML_CUDA_FORCE_MMQ=ON $env:CMAKE_ARGS"
-          # if ($env:AVXVER -eq 'AVX') {
-          $env:CMAKE_ARGS = $env:CMAKE_ARGS + ' -DGGML_AVX2=off -DGGML_FMA=off -DGGML_F16C=off'
-          # }
+          if ($env:AVXVER -eq 'AVX') {
+            $env:CMAKE_ARGS = $env:CMAKE_ARGS + ' -DGGML_AVX2=off -DGGML_FMA=off -DGGML_F16C=off'
+          }
+          if ($env:AVXVER -eq 'AVX2') {
+            $env:CMAKE_ARGS = $env:CMAKE_ARGS + ' -DGGML_AVX2=on -DGGML_FMA=off -DGGML_F16C=off'
+          }
           # if ($env:AVXVER -eq 'AVX512') {
           #  $env:CMAKE_ARGS = $env:CMAKE_ARGS + ' -DGGML_AVX512=on'
           # }
