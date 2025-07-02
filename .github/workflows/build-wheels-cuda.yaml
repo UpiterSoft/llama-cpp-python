@@ -23,8 +23,8 @@ jobs:
           $matrix = @{
               'os' = @('windows-2022')  #'ubuntu-latest', 
               'pyver' = @("3.11")  # "3.10", , "3.12"
-              'cuda' = @("12.4.1", "12.5.1", "12.6.3")  # "12.1.1", "12.2.2", "12.3.2", "12.4.1") #, "12.5.1", 
-              'releasetag' = @("AVX", "basic")  # 'releasetag' = @("basic")
+              'cuda' = @("12.6.3")  # "12.1.1", "12.2.2", "12.3.2", "12.4.1") #, "12.5.1", 
+              'releasetag' = @("AVX2")  # 'releasetag' = @("basic")
               'cudaarch' = @("all")
           }
 
@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: microsoft/setup-msbuild@main
         with:
-          vs-version: '[17.12,17.15)'
+          vs-version: '[16.11,16.12)'
           msbuild-architecture: x64
 
       - uses: actions/checkout@main
@@ -63,7 +63,7 @@ jobs:
       
       # from kingbri1/flash-attention build-wheels.yml
       - name: Install CUDA ${{ matrix.cuda }}
-        uses: Jimver/cuda-toolkit@v0.2.24
+        uses: Jimver/cuda-toolkit@v0.2.21
         # 250630 temporary issue https://github.com/Jimver/cuda-toolkit/issues/395#issuecomment-2941579978
         id: cuda-toolkit
         with:
@@ -104,9 +104,6 @@ jobs:
           # if ($env:AVXVER -eq 'AVX512') {
           #  $env:CMAKE_ARGS = $env:CMAKE_ARGS + ' -DGGML_AVX512=on'
           # }
-          if ($env:AVXVER -eq 'basic') {
-           $env:CMAKE_ARGS = $env:CMAKE_ARGS + ' -DGGML_AVX=off -DGGML_AVX2=off -DGGML_FMA=off -DGGML_F16C=off'
-          }
           python -m build --wheel
           # write the build tag to the output
           Write-Output "CUDA_VERSION=$cudaVersion" >> $env:GITHUB_ENV
